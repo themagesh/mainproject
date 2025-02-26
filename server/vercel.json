@@ -1,10 +1,15 @@
 {
     "builds": [
       {
-        "src": "server/main.py",
+        "src": "main.py",
         "use": "@vercel/python"
       }
     ],
-    "installCommand": "pip install ta-lib-binary"
+    "routes": [
+      {
+        "src": "/(.*)",
+        "dest": "main.py"
+      }
+    ]
   }
   

@@ -1,0 +1,27 @@
+# Python-related ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.db
+
+# Virtual environment
+venv/
+.venv
+.env
+*.env
+
+# Dependency files
+pip-log.txt
+pip-delete-this-directory.txt
+
+# FastAPI and Uvicorn specific
+*.pid
+*.log
+*.sqlite3
+instance/
+
+# Ignore IDE and editor settings
+.vscode/
+.idea/
+*.swp

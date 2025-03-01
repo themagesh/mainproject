@@ -8,22 +8,21 @@ export default function Home() {
   const [coinsData, setCoinsData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [livePrices, setLivePrices] = useState({}); // State for live prices
-  const [liveData, setLiveData] = useState({}); // State for live data points (including SMA)
-  const chartRefs = useRef([]); // Array of refs for each chart
+  const [livePrices, setLivePrices] = useState({});
+  const [liveData, setLiveData] = useState({});
+  const chartRefs = useRef([]);
 
   // Fetch initial coin data from API
   useEffect(() => {
     const fetchData = async () => {
       try {
         const response = await axios.get('http://localhost:8000/indicators/top-coins/', {
-          params: { interval: '1d', limit: 120 }, // Daily data for ~4 months (Sep to Jan or Mar to Oct)
+          params: { interval: '1h', limit: 90 },
         });
 
         const coins = response.data;
         setCoinsData(coins);
 
-        // Initialize live prices and data with the latest from each coin
         const initialPrices = {};
         const initialData = {};
         coins.forEach(coin => {
@@ -45,19 +44,16 @@ export default function Home() {
     };
     fetchData();
 
-    // Update live prices and data every 30 minutes (replace with real-time API if available)
     const updateInterval = setInterval(() => {
       setLivePrices(prevPrices => {
         const updatedPrices = {};
         const updatedData = {};
         coinsData.forEach(coin => {
-          // Simulate a small random price fluctuation (e.g., ±0.5%)
           const latestPrice = coin.data[coin.data.length - 1]?.close || prevPrices[coin.symbol] || 0;
-          const fluctuation = latestPrice * (Math.random() * 0.01 - 0.005); // ±0.5%
+          const fluctuation = latestPrice * (Math.random() * 0.01 - 0.005);
           const newPrice = Math.max(0, latestPrice + fluctuation).toFixed(2);
           updatedPrices[coin.symbol] = newPrice;
 
-          // Update live data with new price and recalculate SMA (simple moving average for last 5 points)
           const currentData = liveData[coin.symbol] || {};
           const newData = {
             close: parseFloat(newPrice),
@@ -69,25 +65,21 @@ export default function Home() {
         setLiveData(updatedData);
         return updatedPrices;
       });
-    }, 1800000); // Update every 30 minutes (1800000 milliseconds)
+    }, 1800000);
 
-    // Cleanup interval on unmount
     return () => clearInterval(updateInterval);
   }, [coinsData]);
 
-  // Function to calculate Simple Moving Average (SMA) for the last n points
   const calculateSMA = (prices, period = 5) => {
     if (prices.length < period) return 0;
     const sum = prices.slice(-period).reduce((sum, price) => sum + price, 0);
     return sum / period;
   };
 
-  // Function to render D3 chart for a specific coin
   const drawChart = useCallback((coinData, chartRef) => {
     if (!coinData || !chartRef) return;
 
-    // Use live data for the latest point, combined with historical data
-    const historicalData = coinData.data.slice(0, -1); // All but the last point
+    const historicalData = coinData.data.slice(0, -1);
     const livePoint = liveData[coinData.symbol] || {
       close: coinData.data[coinData.data.length - 1]?.close || 0,
       sma: coinData.data[coinData.data.length - 1]?.sma || 0,
@@ -95,20 +87,17 @@ export default function Home() {
     };
     const data = [...historicalData, livePoint];
 
-    // Generate buy/sell signals (using SMA crossover strategy, updated with live data)
     const signals = data.map((d, i) => {
-      if (i < 1) return null; // Need at least two points for comparison
+      if (i < 1) return null;
       const prev = data[i - 1];
       const current = d;
       const prevSma = prev.sma;
       const currentSma = current.sma;
 
       if (prevSma !== null && currentSma !== null) {
-        // Buy signal: Price (close) crosses above SMA
         if (current.close > currentSma && prev.close <= prev.sma) {
           return { timestamp: current.timestamp, type: 'buy', price: current.close };
         }
-        // Sell signal: Price (close) crosses below SMA
         if (current.close < currentSma && prev.close >= prev.sma) {
           return { timestamp: current.timestamp, type: 'sell', price: current.close };
         }
@@ -116,33 +105,28 @@ export default function Home() {
       return null;
     }).filter((signal) => signal !== null);
 
-    // Store signal elements for dynamic updates
     let signalDots, sellEllipses, buyEllipses;
 
-    const margin = { top: 20, right: 20, bottom: 50, left: 0 }; // No left margin for no y-axis
-    const initialWidth = 1200 - margin.left - margin.right; // Base width for laptop
+    const margin = { top: 20, right: 20, bottom: 50, left: 0 };
+    const initialWidth = 1200 - margin.left - margin.right;
     const height = 400 - margin.top - margin.bottom;
 
-    // Clear previous SVG content
     d3.select(chartRef).selectAll('*').remove();
 
-    // Create SVG with dark background
     const svg = d3
       .select(chartRef)
       .append('svg')
       .attr('width', initialWidth + margin.left + margin.right)
       .attr('height', height + margin.top + margin.bottom)
-      .style('background-color', '#1a1a1a') // Dark background
+      .style('background-color', '#1a1a1a')
       .append('g')
       .attr('transform', `translate(${margin.left},${margin.top})`);
 
-    // X scale (time, daily)
     const x = d3
       .scaleTime()
       .domain(d3.extent(data, (d) => new Date(d.timestamp)))
       .range([0, initialWidth]);
 
-    // Y scale (price for candlesticks, SMA, and signals)
     const yPrice = d3
       .scaleLinear()
       .domain([
@@ -152,21 +136,18 @@ export default function Home() {
       .nice()
       .range([height, 0]);
 
-    // Axes (only x-axis, no left y-axis)
     const xAxis = svg
       .append('g')
       .attr('transform', `translate(0,${height})`)
-      .call(d3.axisBottom(x).ticks(30).tickFormat(d3.timeFormat('%b %d'))) // Daily ticks
-      .style('color', '#848e9c'); // Light gray text
+      .call(d3.axisBottom(x).ticks(30).tickFormat(d3.timeFormat('%b %d')))
+      .style('color', '#848e9c');
 
-    // Rotate and adjust x-axis labels
     xAxis.selectAll('text')
       .style('text-anchor', 'end')
       .attr('transform', 'rotate(-45)')
       .attr('dx', '-0.8em')
       .attr('dy', '0.15em');
 
-    // Candlesticks (only Open-Close body, no High-Low wicks, brighter colors, day-wise spacing)
     const candlestick = svg
       .selectAll('.candlestick')
       .data(data)
@@ -175,18 +156,16 @@ export default function Home() {
       .attr('class', 'candlestick')
       .attr('transform', (d) => `translate(${x(new Date(d.timestamp))},0)`);
 
-    // Open-Close body (adjusted for day-wise visibility, using live close price)
     candlestick
       .append('rect')
-      .attr('x', -3) // Narrower for better daily spacing
-      .attr('width', 6) // Slightly narrower for clarity over ~120 days
+      .attr('x', -3)
+      .attr('width', 6)
       .attr('y', (d) => yPrice(Math.max(d.open || d.close, d.close)))
       .attr('height', (d) =>
         (d.open || d.close) === d.close ? 1 : Math.abs(yPrice(d.open || d.close) - yPrice(d.close))
       )
-      .attr('fill', (d) => (d.close >= (d.open || d.close) ? '#0ECB81' : '#F6465D')); // Bright green/red from SVG
+      .attr('fill', (d) => (d.close >= (d.open || d.close) ? '#0ECB81' : '#F6465D'));
 
-    // SMA Points (blue dots, no line, like in the image)
     svg
       .selectAll('.sma-dot')
       .data(data.filter((d) => d.sma !== null))
@@ -196,22 +175,20 @@ export default function Home() {
       .attr('cx', (d) => x(new Date(d.timestamp)))
       .attr('cy', (d) => yPrice(d.sma))
       .attr('r', 3)
-      .attr('fill', '#0000ff'); // Bright blue dots
+      .attr('fill', '#0000ff');
 
-    // Buy Signals (yellow dots, matching request)
     signalDots = svg
       .selectAll('.buy-signal-dot')
       .data(signals.filter((s) => s.type === 'buy'))
       .enter()
       .append('text')
       .attr('x', (d) => x(new Date(d.timestamp)))
-      .attr('y', (d) => yPrice(d.price) - 10) // Position above candlestick
+      .attr('y', (d) => yPrice(d.price) - 10)
       .attr('text-anchor', 'middle')
       .attr('font-size', '55px')
-      .attr('fill', '#ffff00') // Yellow dots, as requested
+      .attr('fill', '#ffff00')
       .text('.');
 
-    // Sell Signals (purple dots with red blurred ellipses, matching SVG)
     const sellSignalsData = signals.filter((s) => s.type === 'sell');
     signalDots = svg
       .selectAll('.sell-signal-dot')
@@ -219,60 +196,56 @@ export default function Home() {
       .enter()
       .append('text')
       .attr('x', (d) => x(new Date(d.timestamp)))
-      .attr('y', (d) => yPrice(d.price) + 10) // Position below candlestick
+      .attr('y', (d) => yPrice(d.price) + 10)
       .attr('text-anchor', 'middle')
       .attr('font-size', '55px')
-      .attr('fill', '#800080') // Purple dots, matching SVG
+      .attr('fill', '#800080')
       .text('.');
 
-    // Add red blurred ellipses for sell signals
     sellEllipses = svg
       .selectAll('.sell-ellipse')
       .data(sellSignalsData)
       .enter()
       .append('ellipse')
       .attr('cx', (d) => x(new Date(d.timestamp)))
-      .attr('cy', (d) => yPrice(d.price)) // Center on sell dot
-      .attr('rx', 15) // Horizontal radius
-      .attr('ry', 8) // Vertical radius
-      .attr('fill', '#ff0000') // Red, matching SVG
-      .style('filter', 'blur(8px)'); // Blurred effect, matching SVG
+      .attr('cy', (d) => yPrice(d.price))
+      .attr('rx', 15)
+      .attr('ry', 8)
+      .attr('fill', '#ff0000')
+      .style('filter', 'blur(8px)');
 
-    // Buy Confirmation Signals (green blurred ellipses, matching SVG)
-    const buyConfirmations = signals.filter((s) => s.type === 'buy' && Math.random() < 0.5); // Simplified logic for demo
+    const buyConfirmations = signals.filter((s) => s.type === 'buy' && Math.random() < 0.5);
     buyEllipses = svg
       .selectAll('.buy-ellipse')
       .data(buyConfirmations)
       .enter()
       .append('ellipse')
       .attr('cx', (d) => x(new Date(d.timestamp)))
-      .attr('cy', (d) => yPrice(d.price) - 10) // Align with buy dot
-      .attr('rx', 15) // Horizontal radius
-      .attr('ry', 8) // Vertical radius
-      .attr('fill', '#00ff00') // Green, matching SVG
-      .style('filter', 'blur(6px)'); // Blurred effect, matching SVG
+      .attr('cy', (d) => yPrice(d.price) - 10)
+      .attr('rx', 15)
+      .attr('ry', 8)
+      .attr('fill', '#00ff00')
+      .style('filter', 'blur(6px)');
 
-    // Title with coin name and live price, styled to match image
     const livePrice = livePrices[coinData.symbol] || data[data.length - 1]?.close.toFixed(2);
     svg
       .append('text')
       .attr('x', initialWidth / 2)
-      .attr('y', -10) // Position higher to match "BAJAJ FINANCE : 7300.00" image
+      .attr('y', -10)
       .attr('text-anchor', 'middle')
-      .style('font-size', '14px') // Match image font size
+      .style('font-size', '14px')
       .style('font-weight', 'bold')
-      .attr('fill', '#ffff00') // Bright yellow, matching image
+      .attr('fill', '#ffff00')
       .text(`${coinData.symbol} : ${livePrice}`);
 
-    // Responsive design for each chart
     const handleResize = () => {
       const screenWidth = window.innerWidth;
       let newWidth;
 
       if (screenWidth < 768) {
-        newWidth = screenWidth * 0.9 - margin.left - margin.right; // 90% of mobile screen width
+        newWidth = screenWidth * 0.9 - margin.left - margin.right;
       } else {
-        newWidth = 1200 - margin.left - margin.right; // Fixed 1200px for laptop
+        newWidth = 1200 - margin.left - margin.right;
       }
 
       svg.attr('width', newWidth + margin.left + margin.right);
@@ -286,15 +259,14 @@ export default function Home() {
     };
 
     window.addEventListener('resize', handleResize);
-    handleResize(); // Initial call
+    handleResize();
 
-    return () => window.removeEventListener('resize', handleResize); // Cleanup
-  }, [coinsData, loading, livePrices, liveData]); // Added liveData to dependencies for dynamic signals
+    return () => window.removeEventListener('resize', handleResize);
+  }, [coinsData, loading, livePrices, liveData]);
 
-  // Draw charts for all coins when data, live prices, or live data change
   useEffect(() => {
     if (!loading && coinsData.length > 0) {
-      chartRefs.current = chartRefs.current.slice(0, coinsData.length); // Ensure refs match number of coins
+      chartRefs.current = chartRefs.current.slice(0, coinsData.length);
       coinsData.forEach((coin, index) => {
         if (!chartRefs.current[index]) {
           chartRefs.current[index] = React.createRef();
@@ -309,19 +281,22 @@ export default function Home() {
 
   return (
     <div className="bg-gray-900 min-h-screen p-5">
-      <h1 className="text-2xl text-yellow-300 mb-4 md:text-3xl">Top 20 Coins - Candlestick Charts with Signals (Daily)</h1>
-      <div className="overflow-y-auto max-h-[80vh] space-y-6">
+      <h1 className="text-2xl text-yellow-300 mb-4 md:text-3xl text-center">
+        Top 20 Coins - Candlestick Charts with Signals (Daily 1h)
+      </h1>
+      <div className="w-full max-w-7xl mx-auto">
         {coinsData.map((coin, index) => (
-          <div key={coin.symbol} className="bg-gray-800 p-4 rounded-lg shadow-lg">
+          <div key={coin.symbol} className="bg-gray-800 p-4 rounded-lg shadow-lg mb-2">
             <div className="mb-4 flex items-center justify-center">
-              <span className="text-xl font-bold text-yellow-300">
-                {coin.symbol}
-              </span>
+              <span className="text-xl font-bold text-yellow-300">{coin.symbol}</span>
               <span className="ml-4 text-xl font-semibold text-white animate-pulse">
-                Price: ${livePrices[coin.symbol] || coin.data[coin.data.length - 1]?.close.toFixed(2)}
+                ${livePrices[coin.symbol] || '0.00'}
               </span>
             </div>
-            <div ref={chartRefs.current[index] || (chartRefs.current[index] = React.createRef())} className="w-full mx-auto md:w-[1200px]"></div>
+            <div
+              ref={chartRefs.current[index] || (chartRefs.current[index] = React.createRef())}
+              className="w-full mx-auto md:w-[1200px]"
+            ></div>
           </div>
         ))}
       </div>
